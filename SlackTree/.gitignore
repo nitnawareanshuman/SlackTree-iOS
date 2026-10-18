@@ -1,0 +1,36 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Xcode user data
+xcuserdata/
+*.xcuserstate
+*.xccheckout
+*.moved-aside
+*.hmap
+
+# Xcode build products
+build/
+DerivedData/
+*.ipa
+*.app
+*.dSYM
+*.dSYM.zip
+
+# Swift Package Manager
+.build/
+.swiftpm/
+Package.resolved
+
+# Xcode temporary files
+*.xcuserdatad/
+*.xccurrentversion
+
+# IDEs
+.vscode/
+.idea/
+
+# Logs and crash reports
+*.log
+*.crash
