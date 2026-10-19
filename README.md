@@ -1,9 +1,13 @@
-# <p align="left">
-  <img src="AppIcon.png" alt="SlackTree app icon" width="88" align="left" />
-  <h1>SlackTree — Stack Tower</h1>
-  <p><strong>A minimal hyper-casual stacking game for iOS.</strong></p>
-  <p>One tap. One more block. How high?</p>
-</p>
+<div align="left">
+  <img src="AppIcon.png" alt="SlackTree app icon" width="76" align="left" />
+</div>
+
+# SlackTree — Stack Tower
+
+**A minimal hyper-casual stacking game for iOS.**
+
+
+One tap. One more block. How high?
 
 <br clear="left" />
 
