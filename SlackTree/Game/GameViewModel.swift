@@ -16,6 +16,10 @@ final class GameViewModel: ObservableObject, GameSceneDelegate {
     @Published private(set) var score: Int = Theme.Gameplay.initialScore
     @Published private(set) var bestScore: Int
     @Published private(set) var gameState: GameState = .menu
+    @Published private(set) var isNewBest = false
+
+    /// Incremented to ask GameView to build an entirely new SpriteKit scene.
+    @Published private(set) var gameSessionID = UUID()
 
     private let highScoreStore: HighScoreStore
 
@@ -27,10 +31,12 @@ final class GameViewModel: ObservableObject, GameSceneDelegate {
         self.bestScore = store.bestScore
     }
 
-    // MARK: - Game State
+    // MARK: - State Transitions
 
     func startGame() {
         score = Theme.Gameplay.initialScore
+        isNewBest = false
+        gameSessionID = UUID()
         gameState = .playing
     }
 
@@ -48,16 +54,26 @@ final class GameViewModel: ObservableObject, GameSceneDelegate {
         gameState = .menu
     }
 
+    // MARK: - Score
+
     func updateScore(_ newScore: Int) {
         guard newScore >= 0 else { return }
 
         score = newScore
-        highScoreStore.saveIfHigher(newScore)
-        bestScore = highScoreStore.bestScore
+
+        if newScore > bestScore {
+            highScoreStore.saveIfHigher(newScore)
+            bestScore = highScoreStore.bestScore
+        }
     }
 
     func endGame() {
-        highScoreStore.saveIfHigher(score)
+        isNewBest = score > bestScore
+
+        if isNewBest {
+            highScoreStore.saveIfHigher(score)
+        }
+
         bestScore = highScoreStore.bestScore
         gameState = .gameOver
     }
@@ -65,10 +81,12 @@ final class GameViewModel: ObservableObject, GameSceneDelegate {
     // MARK: - GameSceneDelegate
 
     func gameScene(_ scene: GameScene, didUpdateScore score: Int) {
+        guard gameState == .playing else { return }
         updateScore(score)
     }
 
     func gameSceneDidEnd(_ scene: GameScene) {
+        guard gameState == .playing else { return }
         endGame()
     }
 }
