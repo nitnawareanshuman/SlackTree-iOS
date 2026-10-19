@@ -7,22 +7,28 @@
 
 import Foundation
 
+/// A small UserDefaults wrapper so persistence stays out of gameplay code.
 final class HighScoreStore {
     static let shared = HighScoreStore()
 
     private let defaults: UserDefaults
     private let key = Theme.Gameplay.bestScoreKey
 
-    private init(defaults: UserDefaults = .standard) {
+    /// Internal initializer allows isolated UserDefaults suites in tests.
+    init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
     }
 
     var bestScore: Int {
-        defaults.integer(forKey: key)
+        max(0, defaults.integer(forKey: key))
     }
 
-    func saveIfHigher(_ score: Int) {
-        guard score > bestScore else { return }
+    /// Saves only a new record; returns whether this call set a new record.
+    @discardableResult
+    func saveIfHigher(_ score: Int) -> Bool {
+        guard score > bestScore else { return false }
+
         defaults.set(score, forKey: key)
+        return true
     }
 }

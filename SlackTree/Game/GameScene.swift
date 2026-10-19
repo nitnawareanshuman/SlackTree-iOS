@@ -5,6 +5,7 @@
 //  Created by Anshuman Nitnaware on 19/10/26.
 //
 
+
 import SpriteKit
 import SwiftUI
 import UIKit
@@ -42,11 +43,18 @@ final class GameScene: SKScene {
     private var isGameOver = false
     private var isConfigured = false
 
+    // Cached per-block movement values keep update() limited to scalar math.
+    private var movementLeftLimit: CGFloat = 0
+    private var movementRightLimit: CGFloat = 0
+    private var currentMoveSpeed: CGFloat = Theme.Gameplay.initialMoveSpeed
+
     // MARK: - Scene Lifecycle
 
     override func didMove(to view: SKView) {
         backgroundColor = .clear
         view.preferredFramesPerSecond = Theme.Gameplay.targetFPS
+        view.showsFPS = Theme.Debug.showsPerformanceStats
+        view.showsNodeCount = Theme.Debug.showsPerformanceStats
 
         guard !isConfigured else { return }
         isConfigured = true
@@ -83,6 +91,9 @@ final class GameScene: SKScene {
         moveDirection = 1
         nextBlockStartsOnRight = false
         isGameOver = false
+        movementLeftLimit = 0
+        movementRightLimit = 0
+        currentMoveSpeed = Theme.Gameplay.initialMoveSpeed
 
         let availableWidth = max(
             1,
@@ -161,21 +172,15 @@ final class GameScene: SKScene {
             name: "tower.block.moving"
         )
 
-        let halfWidth = blockSize.width / 2
-        let leftLimit = halfWidth + Theme.Gameplay.horizontalInset
-
-        let rightLimit = max(
-            leftLimit,
-            size.width - halfWidth - Theme.Gameplay.horizontalInset
-        )
+        updateMovementBounds(for: block)
+        updateMovementSpeed()
 
         let startsOnRight = nextBlockStartsOnRight
         nextBlockStartsOnRight.toggle()
-
         moveDirection = startsOnRight ? -1 : 1
 
         block.position = CGPoint(
-            x: startsOnRight ? rightLimit : leftLimit,
+            x: startsOnRight ? movementRightLimit : movementLeftLimit,
             y: topBlock.position.y + Theme.Gameplay.blockHeight
         )
 
@@ -183,6 +188,27 @@ final class GameScene: SKScene {
         movingBlock = block
 
         updateCameraTarget(animated: true)
+    }
+
+    /// Recomputed only when a block spawns or the scene dimensions change.
+    private func updateMovementBounds(for block: SKShapeNode) {
+        let halfWidth = block.frame.width / 2
+        movementLeftLimit = halfWidth + Theme.Gameplay.horizontalInset
+        movementRightLimit = max(
+            movementLeftLimit,
+            size.width - halfWidth - Theme.Gameplay.horizontalInset
+        )
+    }
+
+    /// Difficulty changes once per spawned block, not every frame.
+    private func updateMovementSpeed() {
+        let level = max(0, totalPlacedCount - 1)
+        let requestedSpeed = Theme.Gameplay.initialMoveSpeed
+            + CGFloat(level) * Theme.Gameplay.speedIncreasePerLevel
+        currentMoveSpeed = min(
+            requestedSpeed,
+            Theme.Gameplay.maximumMoveSpeed
+        )
     }
 
     override func update(_ currentTime: TimeInterval) {
@@ -193,44 +219,23 @@ final class GameScene: SKScene {
             return
         }
 
-        // Movement is based on elapsed time instead of frame count.
+        // Only scalar value math occurs here; no arrays, nodes, or actions are made.
         let rawDelta = lastUpdateTime == 0
             ? 0
             : currentTime - lastUpdateTime
-
         let deltaTime = min(
             max(rawDelta, 0),
             Theme.Gameplay.maximumFrameDelta
         )
-
         lastUpdateTime = currentTime
 
-        let level = max(0, totalPlacedCount - 1)
+        block.position.x += moveDirection * currentMoveSpeed * CGFloat(deltaTime)
 
-        let requestedSpeed =
-            Theme.Gameplay.initialMoveSpeed
-            + CGFloat(level) * Theme.Gameplay.speedIncreasePerLevel
-
-        let speed = min(
-            requestedSpeed,
-            Theme.Gameplay.maximumMoveSpeed
-        )
-
-        let halfWidth = block.frame.width / 2
-        let leftLimit = halfWidth + Theme.Gameplay.horizontalInset
-
-        let rightLimit = max(
-            leftLimit,
-            size.width - halfWidth - Theme.Gameplay.horizontalInset
-        )
-
-        block.position.x += moveDirection * speed * CGFloat(deltaTime)
-
-        if block.position.x >= rightLimit {
-            block.position.x = rightLimit
+        if block.position.x >= movementRightLimit {
+            block.position.x = movementRightLimit
             moveDirection = -1
-        } else if block.position.x <= leftLimit {
-            block.position.x = leftLimit
+        } else if block.position.x <= movementLeftLimit {
+            block.position.x = movementLeftLimit
             moveDirection = 1
         }
     }
@@ -241,17 +246,10 @@ final class GameScene: SKScene {
             return
         }
 
-        let halfWidth = block.frame.width / 2
-        let leftLimit = halfWidth + Theme.Gameplay.horizontalInset
-
-        let rightLimit = max(
-            leftLimit,
-            size.width - halfWidth - Theme.Gameplay.horizontalInset
-        )
-
+        updateMovementBounds(for: block)
         block.position.x = min(
-            max(block.position.x, leftLimit),
-            rightLimit
+            max(block.position.x, movementLeftLimit),
+            movementRightLimit
         )
     }
 
@@ -426,7 +424,6 @@ final class GameScene: SKScene {
         horizontalDirection: CGFloat
     ) {
         let pieceWidth = endX - startX
-
         guard pieceWidth > 0 else { return }
 
         let piece = makeBlock(
@@ -442,7 +439,6 @@ final class GameScene: SKScene {
             x: (startX + endX) / 2,
             y: y
         )
-
         piece.zPosition = 5
         addChild(piece)
 
@@ -457,7 +453,6 @@ final class GameScene: SKScene {
         let fade = SKAction.fadeOut(
             withDuration: Theme.Gameplay.overhangFadeDuration
         )
-
         let finish = SKAction.group([fall, fade])
 
         piece.run(
@@ -478,7 +473,6 @@ final class GameScene: SKScene {
     ) {
         // A single translucent rectangle gives a quick alignment flash.
         let flash = SKShapeNode(rectOf: blockSize)
-
         flash.position = position
         flash.fillColor = .white
         flash.strokeColor = .white
@@ -486,7 +480,6 @@ final class GameScene: SKScene {
         flash.alpha = 0.75
         flash.zPosition = 20
         flash.blendMode = .add
-
         addChild(flash)
 
         flash.run(
@@ -499,9 +492,8 @@ final class GameScene: SKScene {
             withKey: "perfect.flash"
         )
 
-        // A small fixed pool of particles avoids emitter setup and asset files.
+        // The particle burst is intentionally short-lived and asset-free.
         let count = Theme.Gameplay.perfectParticleCount
-
         for index in 0..<count {
             let angle = CGFloat.pi * 2
                 * CGFloat(index) / CGFloat(count)
@@ -512,17 +504,14 @@ final class GameScene: SKScene {
                     height: Theme.Gameplay.perfectParticleSize
                 )
             )
-
             particle.fillColor = color
             particle.strokeColor = color
             particle.lineWidth = 0
             particle.position = position
             particle.zPosition = 21
-
             addChild(particle)
 
             let distance = Theme.Gameplay.perfectParticleSpeed
-
             let destinationX = cos(angle) * distance
             let destinationY = sin(angle) * distance
 
@@ -533,7 +522,6 @@ final class GameScene: SKScene {
                     Theme.Gameplay.perfectParticleLifetime
                 )
             )
-
             let fade = SKAction.fadeOut(
                 withDuration: TimeInterval(
                     Theme.Gameplay.perfectParticleLifetime
@@ -554,7 +542,6 @@ final class GameScene: SKScene {
 
     private func finishGame() {
         guard !isGameOver else { return }
-
         isGameOver = true
 
         movingBlock?.removeFromParent()
@@ -562,21 +549,15 @@ final class GameScene: SKScene {
 
         HapticsManager.shared.playFailure()
         SoundManager.shared.playGameOver()
-
         gameDelegate?.gameSceneDidEnd(self)
     }
 
     // MARK: - Camera
 
-    /// Calculates the camera center that places a target at the configured
-    /// vertical screen ratio without changing the tower's world positions.
+    /// Places the active block at the configured vertical screen ratio.
     private func desiredCameraY(for target: SKNode) -> CGFloat {
-        let targetScreenY =
-            size.height * Theme.Gameplay.activeBlockScreenYRatio
-
-        return target.position.y
-            + size.height / 2
-            - targetScreenY
+        let targetScreenY = size.height * Theme.Gameplay.activeBlockScreenYRatio
+        return target.position.y + size.height / 2 - targetScreenY
     }
 
     private func updateCameraTarget(animated: Bool) {
@@ -587,14 +568,11 @@ final class GameScene: SKScene {
         }
 
         let targetY = desiredCameraY(for: target)
-
-        guard abs(camera.position.y - targetY)
-                > Theme.Gameplay.cameraDeadZone else {
+        guard abs(camera.position.y - targetY) > Theme.Gameplay.cameraDeadZone else {
             return
         }
 
         camera.removeAction(forKey: "camera.follow")
-
         guard animated else {
             camera.position.y = targetY
             return
@@ -604,41 +582,37 @@ final class GameScene: SKScene {
             y: targetY,
             duration: Theme.Gameplay.cameraFollowDuration
         )
-
         action.timingMode = .easeInEaseOut
-
-        camera.run(
-            action,
-            withKey: "camera.follow"
-        )
+        camera.run(action, withKey: "camera.follow")
     }
 
     // MARK: - Node Cleanup
 
-    /// Removes placed blocks below the camera's upcoming visible area.
+    /// Removes the oldest blocks once they are below the camera's lower edge.
+    /// The stack is ordered by height, so culling is a prefix scan with no
+    /// temporary filtered arrays. SpriteKit actions also remove all effects.
     private func removeOffscreenBlocks() {
-        guard let target = movingBlock ?? placedBlocks.last else {
-            return
-        }
+        guard let target = movingBlock ?? placedBlocks.last else { return }
 
         let targetCameraY = desiredCameraY(for: target)
-
         let cutoff = targetCameraY
             - size.height / 2
             - Theme.Gameplay.offscreenCleanupMargin
 
-        let expired = placedBlocks.filter {
-            $0.position.y + $0.frame.height / 2 < cutoff
-        }
+        var expiredCount = 0
+        while expiredCount < placedBlocks.count {
+            let block = placedBlocks[expiredCount]
+            let blockTop = block.position.y + Theme.Gameplay.blockHeight / 2
+            guard blockTop < cutoff else { break }
 
-        for block in expired {
             block.removeFromParent()
+            expiredCount += 1
         }
 
-        guard !expired.isEmpty else { return }
-
-        placedBlocks.removeAll {
-            $0.position.y + $0.frame.height / 2 < cutoff
+        // Array.removeFirst keeps the retained tail and releases old references.
+        // The retained stack is bounded by the visible camera window.
+        if expiredCount > 0 {
+            placedBlocks.removeFirst(expiredCount)
         }
     }
 

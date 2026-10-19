@@ -52,6 +52,17 @@ enum Theme {
         ]
     }
 
+    // MARK: - Diagnostics
+
+    enum Debug {
+        /// SpriteKit counters are enabled for Debug builds only.
+        #if DEBUG
+        static let showsPerformanceStats = true
+        #else
+        static let showsPerformanceStats = false
+        #endif
+    }
+
     // MARK: - Gameplay Constants
 
     enum Gameplay {

@@ -53,6 +53,8 @@ final class GameViewModel: ObservableObject, GameSceneDelegate {
     }
 
     func returnToMenu() {
+        // Refresh from storage in case another scene/session recorded a score.
+        bestScore = highScoreStore.bestScore
         gameState = .menu
     }
 
@@ -60,22 +62,18 @@ final class GameViewModel: ObservableObject, GameSceneDelegate {
 
     func updateScore(_ newScore: Int) {
         guard newScore >= 0 else { return }
-
         score = newScore
 
-        if newScore > bestScore {
-            highScoreStore.saveIfHigher(newScore)
-            bestScore = highScoreStore.bestScore
-        }
+        // Save is deliberately deferred until game over so a run is finalized
+        // in one place and an interrupted run cannot write a partial result.
     }
 
     func endGame() {
-        isNewBest = score > bestScore
+        guard gameState == .playing else { return }
 
-        if isNewBest {
-            highScoreStore.saveIfHigher(score)
-        }
-
+        // saveIfHigher both compares and persists, making this the single
+        // authoritative point where a completed run can set a personal best.
+        isNewBest = highScoreStore.saveIfHigher(score)
         bestScore = highScoreStore.bestScore
         gameState = .gameOver
     }
