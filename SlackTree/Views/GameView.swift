@@ -28,6 +28,11 @@ struct GameView: View {
             .onAppear {
                 scene.scaleMode = .resizeFill
                 scene.size = geometry.size
+                scene.gameDelegate = gameViewModel
+            }
+            .onChange(of: gameViewModel.gameState) { newState in
+                // Prevent gameplay from advancing while the pause overlay is shown.
+                scene.isPaused = newState != .playing
             }
         }
     }

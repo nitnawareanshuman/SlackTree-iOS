@@ -9,17 +9,24 @@ import Combine
 import Foundation
 
 @MainActor
-final class GameViewModel: ObservableObject {
+final class GameViewModel: ObservableObject, GameSceneDelegate {
+
+    // MARK: - Published State
+
     @Published private(set) var score: Int = Theme.Gameplay.initialScore
     @Published private(set) var bestScore: Int
     @Published private(set) var gameState: GameState = .menu
 
     private let highScoreStore: HighScoreStore
 
+    // MARK: - Initialization
+
     init(highScoreStore: HighScoreStore = .shared) {
         self.highScoreStore = highScoreStore
         self.bestScore = highScoreStore.bestScore
     }
+
+    // MARK: - Game State
 
     func startGame() {
         score = Theme.Gameplay.initialScore
@@ -36,11 +43,14 @@ final class GameViewModel: ObservableObject {
         gameState = .playing
     }
 
+    func returnToMenu() {
+        gameState = .menu
+    }
+
     func updateScore(_ newScore: Int) {
         guard newScore >= 0 else { return }
 
         score = newScore
-
         highScoreStore.saveIfHigher(newScore)
         bestScore = highScoreStore.bestScore
     }
@@ -51,7 +61,13 @@ final class GameViewModel: ObservableObject {
         gameState = .gameOver
     }
 
-    func returnToMenu() {
-        gameState = .menu
+    // MARK: - GameSceneDelegate
+
+    func gameScene(_ scene: GameScene, didUpdateScore score: Int) {
+        updateScore(score)
+    }
+
+    func gameSceneDidEnd(_ scene: GameScene) {
+        endGame()
     }
 }
