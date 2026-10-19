@@ -37,11 +37,14 @@ struct GameView: View {
                 if gameViewModel.gameState == .playing {
                     GameHUDView(
                         score: gameViewModel.score,
+                        combo: gameViewModel.combo,
                         onPause: gameViewModel.pauseGame
                     )
                     .padding(.horizontal, 24)
                     .padding(.top, 12)
-                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .transition(
+                        .move(edge: .top).combined(with: .opacity)
+                    )
                 }
 
                 if gameViewModel.gameState == .paused {
@@ -67,17 +70,20 @@ struct GameView: View {
                 scene.isPaused = newState != .playing
             }
             .onChange(of: gameViewModel.gameSessionID) { _, _ in
-                // Replace, rather than reuse, the previous SpriteKit scene.
+                // Dispose of the old scene before replacing it.
+                scene.isPaused = true
+                scene.gameDelegate = nil
                 scene.removeAllActions()
                 scene.removeAllChildren()
 
                 let freshScene = GameScene(size: geometry.size)
                 freshScene.scaleMode = .resizeFill
                 freshScene.gameDelegate = gameViewModel
+                freshScene.isPaused = gameViewModel.gameState != .playing
                 scene = freshScene
             }
             .onChange(of: scenePhase) { _, phase in
-                // Never resume automatically when the app becomes active.
+                // Do not resume gameplay automatically after returning.
                 if phase != .active {
                     gameViewModel.pauseGame()
                 }
@@ -89,7 +95,10 @@ struct GameView: View {
                 scene.removeAllChildren()
             }
         }
-        .animation(.easeInOut(duration: 0.25), value: gameViewModel.gameState)
+        .animation(
+            .easeInOut(duration: 0.25),
+            value: gameViewModel.gameState
+        )
     }
 
     // MARK: - Scene Setup
@@ -106,10 +115,11 @@ struct GameView: View {
 
 private struct GameHUDView: View {
     let score: Int
+    let combo: Int
     let onPause: () -> Void
 
     var body: some View {
-        HStack {
+        HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
                 Text("SCORE")
                     .font(.caption2.weight(.bold))
@@ -117,12 +127,46 @@ private struct GameHUDView: View {
                     .foregroundStyle(.white.opacity(0.6))
 
                 Text("\(score)")
-                    .font(.system(size: 30, weight: .black, design: .rounded))
+                    .font(
+                        .system(
+                            size: 30,
+                            weight: .black,
+                            design: .rounded
+                        )
+                    )
                     .contentTransition(.numericText())
                     .foregroundStyle(Theme.Colors.text)
             }
 
-            Spacer()
+            Spacer(minLength: 4)
+
+            if combo > 0 {
+                VStack(spacing: 3) {
+                    Text("PERFECT")
+                        .font(.system(size: 9, weight: .black))
+                        .tracking(1.2)
+
+                    Text("COMBO ×\(combo)")
+                        .font(
+                            .system(
+                                size: 14,
+                                weight: .heavy,
+                                design: .rounded
+                            )
+                        )
+                        .contentTransition(.numericText())
+                }
+                .foregroundStyle(Theme.Colors.background)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .background(
+                    Theme.Colors.accentOrange,
+                    in: RoundedRectangle(cornerRadius: 14)
+                )
+                .transition(.scale.combined(with: .opacity))
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("Perfect combo \(combo)")
+            }
 
             Button(action: onPause) {
                 Image(systemName: "pause.fill")
@@ -137,7 +181,11 @@ private struct GameHUDView: View {
             .accessibilityLabel("Pause game")
         }
         .padding(18)
-        .background(.black.opacity(0.22), in: RoundedRectangle(cornerRadius: 24))
+        .background(
+            .black.opacity(0.22),
+            in: RoundedRectangle(cornerRadius: 24)
+        )
+        .animation(.easeOut(duration: 0.18), value: combo)
     }
 }
 
@@ -177,7 +225,10 @@ private struct PauseOverlayView: View {
         .padding(28)
         .frame(maxWidth: 320)
         .foregroundStyle(.white)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 30))
+        .background(
+            .ultraThinMaterial,
+            in: RoundedRectangle(cornerRadius: 30)
+        )
         .overlay {
             RoundedRectangle(cornerRadius: 30)
                 .stroke(.white.opacity(0.12), lineWidth: 1)
@@ -196,11 +247,16 @@ struct PrimaryGameButtonStyle: ButtonStyle {
             .foregroundStyle(Theme.Colors.background)
             .padding(.vertical, 16)
             .background(
-                Theme.Colors.primary.opacity(configuration.isPressed ? 0.75 : 1),
+                Theme.Colors.primary.opacity(
+                    configuration.isPressed ? 0.75 : 1
+                ),
                 in: RoundedRectangle(cornerRadius: 16)
             )
             .scaleEffect(configuration.isPressed ? 0.98 : 1)
-            .animation(.easeOut(duration: 0.15), value: configuration.isPressed)
+            .animation(
+                .easeOut(duration: 0.15),
+                value: configuration.isPressed
+            )
     }
 }
 

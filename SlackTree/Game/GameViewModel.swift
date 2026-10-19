@@ -15,10 +15,11 @@ final class GameViewModel: ObservableObject, GameSceneDelegate {
 
     @Published private(set) var score: Int = Theme.Gameplay.initialScore
     @Published private(set) var bestScore: Int
+    @Published private(set) var combo: Int = 0
     @Published private(set) var gameState: GameState = .menu
     @Published private(set) var isNewBest = false
 
-    /// Incremented to ask GameView to build an entirely new SpriteKit scene.
+    /// Incremented to create a fresh SpriteKit scene for a new game.
     @Published private(set) var gameSessionID = UUID()
 
     private let highScoreStore: HighScoreStore
@@ -35,6 +36,7 @@ final class GameViewModel: ObservableObject, GameSceneDelegate {
 
     func startGame() {
         score = Theme.Gameplay.initialScore
+        combo = 0
         isNewBest = false
         gameSessionID = UUID()
         gameState = .playing
@@ -83,6 +85,11 @@ final class GameViewModel: ObservableObject, GameSceneDelegate {
     func gameScene(_ scene: GameScene, didUpdateScore score: Int) {
         guard gameState == .playing else { return }
         updateScore(score)
+    }
+
+    func gameScene(_ scene: GameScene, didUpdateCombo combo: Int) {
+        guard gameState == .playing else { return }
+        self.combo = max(0, combo)
     }
 
     func gameSceneDidEnd(_ scene: GameScene) {

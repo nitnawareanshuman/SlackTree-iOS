@@ -70,17 +70,40 @@ enum Theme {
         static let speedIncreasePerLevel: CGFloat = 8
         static let maximumMoveSpeed: CGFloat = 520
 
-        // The target block appears 70% of the way up the screen.
+        // The active block appears in the upper portion of the screen.
         static let activeBlockScreenYRatio: CGFloat = 0.70
 
-        // Smooth camera-follow animation.
+        // Camera movement.
         static let cameraFollowDuration: TimeInterval = 0.32
         static let cameraDeadZone: CGFloat = 1.0
 
         // Remove blocks below the visible camera area plus this margin.
         static let offscreenCleanupMargin: CGFloat = 80
 
-        // Limit movement after a pause or unusually long frame.
+        // Perfect-drop and combo tuning.
+        static let perfectDropTolerance: CGFloat = 5
+        static let perfectDropBonus = 5
+        static let comboBonusPerLevel = 2
+
+        // HSB color progression.
+        static let blockHueStart: CGFloat = 0.48
+        static let blockHueStep: CGFloat = 0.075
+        static let blockHueSaturation: CGFloat = 0.72
+        static let blockHueBrightness: CGFloat = 0.96
+
+        // Overhang animation.
+        static let overhangFallDuration: TimeInterval = 0.48
+        static let overhangFallDistance: CGFloat = 170
+        static let overhangFadeDuration: TimeInterval = 0.42
+
+        // Perfect-drop feedback.
+        static let perfectFlashDuration: TimeInterval = 0.18
+        static let perfectParticleCount = 12
+        static let perfectParticleLifetime: CGFloat = 0.32
+        static let perfectParticleSpeed: CGFloat = 75
+        static let perfectParticleSize: CGFloat = 3.5
+
+        // Prevent large movement jumps after interruptions.
         static let maximumFrameDelta: TimeInterval = 1.0 / 20.0
     }
 }

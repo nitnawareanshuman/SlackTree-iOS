@@ -6,13 +6,14 @@
 //
 
 import SpriteKit
-import UIKit
 import SwiftUI
+import UIKit
 
-/// Sends gameplay events to the model without coupling SpriteKit to SwiftUI.
+/// Sends gameplay updates to the SwiftUI-facing model.
 @MainActor
 protocol GameSceneDelegate: AnyObject {
     func gameScene(_ scene: GameScene, didUpdateScore score: Int)
+    func gameScene(_ scene: GameScene, didUpdateCombo combo: Int)
     func gameSceneDidEnd(_ scene: GameScene)
 }
 
@@ -23,14 +24,17 @@ final class GameScene: SKScene {
 
     weak var gameDelegate: (any GameSceneDelegate)?
 
-    /// Retains visible tower blocks, with the highest block last.
+    /// The highest placed block is always the final element.
     private var placedBlocks: [SKShapeNode] = []
 
     private var movingBlock: SKShapeNode?
     private var cameraNode: SKCameraNode?
 
-    /// Includes the base block; the base does not count toward player score.
+    /// Includes the base block, which does not count as a player placement.
     private var totalPlacedCount = 0
+
+    private var currentScore = 0
+    private var comboCount = 0
 
     private var lastUpdateTime: TimeInterval = 0
     private var moveDirection: CGFloat = 1
@@ -59,8 +63,6 @@ final class GameScene: SKScene {
         guard size.width > 0 else { return }
 
         clampMovingBlockToSceneBounds()
-
-        // Recalculate framing immediately when the viewport changes.
         updateCameraTarget(animated: false)
     }
 
@@ -74,6 +76,9 @@ final class GameScene: SKScene {
         cameraNode = nil
 
         totalPlacedCount = 0
+        currentScore = 0
+        comboCount = 0
+
         lastUpdateTime = 0
         moveDirection = 1
         nextBlockStartsOnRight = false
@@ -105,8 +110,6 @@ final class GameScene: SKScene {
 
         addChild(base)
         placedBlocks.append(base)
-
-        // The base is structural, not a player-placed block.
         totalPlacedCount = 1
     }
 
@@ -159,16 +162,13 @@ final class GameScene: SKScene {
         )
 
         let halfWidth = blockSize.width / 2
-
-        let leftLimit =
-            halfWidth + Theme.Gameplay.horizontalInset
+        let leftLimit = halfWidth + Theme.Gameplay.horizontalInset
 
         let rightLimit = max(
             leftLimit,
             size.width - halfWidth - Theme.Gameplay.horizontalInset
         )
 
-        // Alternate the starting edge for successive blocks.
         let startsOnRight = nextBlockStartsOnRight
         nextBlockStartsOnRight.toggle()
 
@@ -182,7 +182,6 @@ final class GameScene: SKScene {
         addChild(block)
         movingBlock = block
 
-        // Follow the new active block rather than shifting the tower.
         updateCameraTarget(animated: true)
     }
 
@@ -194,12 +193,11 @@ final class GameScene: SKScene {
             return
         }
 
-        // Movement depends on elapsed time, not the number of frames.
+        // Movement is based on elapsed time instead of frame count.
         let rawDelta = lastUpdateTime == 0
             ? 0
             : currentTime - lastUpdateTime
 
-        // Prevent a large movement jump after an interruption.
         let deltaTime = min(
             max(rawDelta, 0),
             Theme.Gameplay.maximumFrameDelta
@@ -207,7 +205,6 @@ final class GameScene: SKScene {
 
         lastUpdateTime = currentTime
 
-        // Gradually increase speed according to the tower level.
         let level = max(0, totalPlacedCount - 1)
 
         let requestedSpeed =
@@ -220,9 +217,7 @@ final class GameScene: SKScene {
         )
 
         let halfWidth = block.frame.width / 2
-
-        let leftLimit =
-            halfWidth + Theme.Gameplay.horizontalInset
+        let leftLimit = halfWidth + Theme.Gameplay.horizontalInset
 
         let rightLimit = max(
             leftLimit,
@@ -231,7 +226,6 @@ final class GameScene: SKScene {
 
         block.position.x += moveDirection * speed * CGFloat(deltaTime)
 
-        // Clamp the block to prevent overshooting at either edge.
         if block.position.x >= rightLimit {
             block.position.x = rightLimit
             moveDirection = -1
@@ -248,9 +242,7 @@ final class GameScene: SKScene {
         }
 
         let halfWidth = block.frame.width / 2
-
-        let leftLimit =
-            halfWidth + Theme.Gameplay.horizontalInset
+        let leftLimit = halfWidth + Theme.Gameplay.horizontalInset
 
         let rightLimit = max(
             leftLimit,
@@ -280,45 +272,67 @@ final class GameScene: SKScene {
             return
         }
 
-        // Intersect the horizontal intervals of the two rectangles.
-        let movingLeft =
-            moving.position.x - moving.frame.width / 2
+        let originalWidth = moving.frame.width
+        let halfWidth = originalWidth / 2
 
-        let movingRight =
-            moving.position.x + moving.frame.width / 2
+        let movingLeft = moving.position.x - halfWidth
+        let movingRight = moving.position.x + halfWidth
 
-        let belowLeft =
-            below.position.x - below.frame.width / 2
+        let belowLeft = below.position.x - below.frame.width / 2
+        let belowRight = below.position.x + below.frame.width / 2
 
-        let belowRight =
-            below.position.x + below.frame.width / 2
+        // A near-perfect alignment snaps directly to the block underneath.
+        let isPerfect = abs(
+            moving.position.x - below.position.x
+        ) <= Theme.Gameplay.perfectDropTolerance
 
         let overlapLeft = max(movingLeft, belowLeft)
         let overlapRight = min(movingRight, belowRight)
         let overlapWidth = overlapRight - overlapLeft
 
-        // Edge-only contact does not count as a successful placement.
-        guard overlapWidth > 0 else {
+        // Edge-only contact is not a valid placement.
+        guard isPerfect || overlapWidth > 0 else {
             finishGame()
             return
         }
 
-        let overlapCenterX = (overlapLeft + overlapRight) / 2
+        let finalWidth: CGFloat
+        let finalCenterX: CGFloat
 
-        // Trim the block's path to exactly match the overlap.
-        let trimmedRect = CGRect(
-            x: -overlapWidth / 2,
-            y: -Theme.Gameplay.blockHeight / 2,
-            width: overlapWidth,
+        if isPerfect {
+            finalWidth = below.frame.width
+            finalCenterX = below.position.x
+        } else {
+            finalWidth = overlapWidth
+            finalCenterX = (overlapLeft + overlapRight) / 2
+
+            // Preserve the discarded section as an independent falling node.
+            spawnOverhangs(
+                movingLeft: movingLeft,
+                movingRight: movingRight,
+                overlapLeft: overlapLeft,
+                overlapRight: overlapRight,
+                y: moving.position.y,
+                color: moving.fillColor
+            )
+        }
+
+        let finalSize = CGSize(
+            width: finalWidth,
             height: Theme.Gameplay.blockHeight
         )
 
         moving.path = CGPath(
-            rect: trimmedRect,
+            rect: CGRect(
+                x: -finalWidth / 2,
+                y: -Theme.Gameplay.blockHeight / 2,
+                width: finalWidth,
+                height: Theme.Gameplay.blockHeight
+            ),
             transform: nil
         )
 
-        moving.position.x = overlapCenterX
+        moving.position.x = finalCenterX
         moving.name = "tower.block.placed"
         moving.fillColor = blockColor(for: totalPlacedCount)
         moving.strokeColor = moving.fillColor
@@ -327,21 +341,216 @@ final class GameScene: SKScene {
         totalPlacedCount += 1
         movingBlock = nil
 
-        // Score counts successful player placements, excluding the base.
-        let playerScore = totalPlacedCount - 1
+        // Consecutive perfect placements build a combo; any miss breaks it.
+        let bonus: Int
+
+        if isPerfect {
+            comboCount += 1
+
+            bonus = Theme.Gameplay.perfectDropBonus
+                + (comboCount - 1) * Theme.Gameplay.comboBonusPerLevel
+
+            showPerfectEffect(
+                at: CGPoint(
+                    x: finalCenterX,
+                    y: moving.position.y
+                ),
+                blockSize: finalSize,
+                color: moving.fillColor
+            )
+
+            HapticsManager.shared.playSuccess()
+            SoundManager.shared.playPerfect()
+        } else {
+            comboCount = 0
+            bonus = 0
+
+            HapticsManager.shared.playTap()
+            SoundManager.shared.playTap()
+        }
+
+        // The ordinary placement earns one point; perfect drops add a bonus.
+        currentScore += 1 + bonus
 
         gameDelegate?.gameScene(
             self,
-            didUpdateScore: playerScore
+            didUpdateScore: currentScore
         )
 
-        HapticsManager.shared.playSuccess()
-        SoundManager.shared.playTap()
+        gameDelegate?.gameScene(
+            self,
+            didUpdateCombo: comboCount
+        )
 
-        // Spawn first so cleanup uses the next camera target.
         spawnMovingBlock()
         removeOffscreenBlocks()
     }
+
+    // MARK: - Overhang Animation
+
+    /// Creates only the discarded portions, then removes them after they fall.
+    private func spawnOverhangs(
+        movingLeft: CGFloat,
+        movingRight: CGFloat,
+        overlapLeft: CGFloat,
+        overlapRight: CGFloat,
+        y: CGFloat,
+        color: UIColor
+    ) {
+        if overlapLeft > movingLeft {
+            spawnOverhang(
+                fromX: movingLeft,
+                toX: overlapLeft,
+                y: y,
+                color: color,
+                horizontalDirection: -1
+            )
+        }
+
+        if movingRight > overlapRight {
+            spawnOverhang(
+                fromX: overlapRight,
+                toX: movingRight,
+                y: y,
+                color: color,
+                horizontalDirection: 1
+            )
+        }
+    }
+
+    private func spawnOverhang(
+        fromX startX: CGFloat,
+        toX endX: CGFloat,
+        y: CGFloat,
+        color: UIColor,
+        horizontalDirection: CGFloat
+    ) {
+        let pieceWidth = endX - startX
+
+        guard pieceWidth > 0 else { return }
+
+        let piece = makeBlock(
+            size: CGSize(
+                width: pieceWidth,
+                height: Theme.Gameplay.blockHeight
+            ),
+            color: color,
+            name: "tower.block.overhang"
+        )
+
+        piece.position = CGPoint(
+            x: (startX + endX) / 2,
+            y: y
+        )
+
+        piece.zPosition = 5
+        addChild(piece)
+
+        // SpriteKit actions animate the fragment without per-frame bookkeeping.
+        let fall = SKAction.moveBy(
+            x: horizontalDirection * pieceWidth * 0.25,
+            y: -Theme.Gameplay.overhangFallDistance,
+            duration: Theme.Gameplay.overhangFallDuration
+        )
+        fall.timingMode = .easeIn
+
+        let fade = SKAction.fadeOut(
+            withDuration: Theme.Gameplay.overhangFadeDuration
+        )
+
+        let finish = SKAction.group([fall, fade])
+
+        piece.run(
+            SKAction.sequence([
+                finish,
+                SKAction.removeFromParent()
+            ]),
+            withKey: "overhang.fallAndRemove"
+        )
+    }
+
+    // MARK: - Perfect-Drop Effects
+
+    private func showPerfectEffect(
+        at position: CGPoint,
+        blockSize: CGSize,
+        color: UIColor
+    ) {
+        // A single translucent rectangle gives a quick alignment flash.
+        let flash = SKShapeNode(rectOf: blockSize)
+
+        flash.position = position
+        flash.fillColor = .white
+        flash.strokeColor = .white
+        flash.lineWidth = 0
+        flash.alpha = 0.75
+        flash.zPosition = 20
+        flash.blendMode = .add
+
+        addChild(flash)
+
+        flash.run(
+            SKAction.sequence([
+                SKAction.fadeOut(
+                    withDuration: Theme.Gameplay.perfectFlashDuration
+                ),
+                SKAction.removeFromParent()
+            ]),
+            withKey: "perfect.flash"
+        )
+
+        // A small fixed pool of particles avoids emitter setup and asset files.
+        let count = Theme.Gameplay.perfectParticleCount
+
+        for index in 0..<count {
+            let angle = CGFloat.pi * 2
+                * CGFloat(index) / CGFloat(count)
+
+            let particle = SKShapeNode(
+                ellipseOf: CGSize(
+                    width: Theme.Gameplay.perfectParticleSize,
+                    height: Theme.Gameplay.perfectParticleSize
+                )
+            )
+
+            particle.fillColor = color
+            particle.strokeColor = color
+            particle.lineWidth = 0
+            particle.position = position
+            particle.zPosition = 21
+
+            addChild(particle)
+
+            let distance = Theme.Gameplay.perfectParticleSpeed
+
+            let destinationX = cos(angle) * distance
+            let destinationY = sin(angle) * distance
+
+            let travel = SKAction.moveBy(
+                x: destinationX,
+                y: destinationY,
+                duration: TimeInterval(
+                    Theme.Gameplay.perfectParticleLifetime
+                )
+            )
+
+            let fade = SKAction.fadeOut(
+                withDuration: TimeInterval(
+                    Theme.Gameplay.perfectParticleLifetime
+                )
+            )
+
+            particle.run(
+                SKAction.sequence([
+                    SKAction.group([travel, fade]),
+                    SKAction.removeFromParent()
+                ]),
+                withKey: "perfect.particle"
+            )
+        }
+    }
+
+    // MARK: - Game Over
 
     private func finishGame() {
         guard !isGameOver else { return }
@@ -360,7 +569,7 @@ final class GameScene: SKScene {
     // MARK: - Camera
 
     /// Calculates the camera center that places a target at the configured
-    /// vertical screen ratio, without changing the tower's world positions.
+    /// vertical screen ratio without changing the tower's world positions.
     private func desiredCameraY(for target: SKNode) -> CGFloat {
         let targetScreenY =
             size.height * Theme.Gameplay.activeBlockScreenYRatio
@@ -384,8 +593,6 @@ final class GameScene: SKScene {
             return
         }
 
-        // Starting a new action from the current position keeps camera
-        // movement smooth even if another target arrives mid-animation.
         camera.removeAction(forKey: "camera.follow")
 
         guard animated else {
@@ -408,7 +615,7 @@ final class GameScene: SKScene {
 
     // MARK: - Node Cleanup
 
-    /// Removes blocks that are below the camera's upcoming visible area.
+    /// Removes placed blocks below the camera's upcoming visible area.
     private func removeOffscreenBlocks() {
         guard let target = movingBlock ?? placedBlocks.last else {
             return
@@ -424,13 +631,12 @@ final class GameScene: SKScene {
             $0.position.y + $0.frame.height / 2 < cutoff
         }
 
-        guard !expired.isEmpty else { return }
-
         for block in expired {
             block.removeFromParent()
         }
 
-        // Release references as well as removing the SpriteKit nodes.
+        guard !expired.isEmpty else { return }
+
         placedBlocks.removeAll {
             $0.position.y + $0.frame.height / 2 < cutoff
         }
@@ -438,11 +644,18 @@ final class GameScene: SKScene {
 
     // MARK: - Block Colors
 
+    /// Wraps through the hue wheel while keeping saturation and brightness fixed.
     private func blockColor(for level: Int) -> UIColor {
-        let palette = Theme.Colors.blockPalette
+        let hue = (
+            Theme.Gameplay.blockHueStart
+                + CGFloat(level) * Theme.Gameplay.blockHueStep
+        ).truncatingRemainder(dividingBy: 1.0)
 
         return UIColor(
-            palette[level % palette.count]
+            hue: hue,
+            saturation: Theme.Gameplay.blockHueSaturation,
+            brightness: Theme.Gameplay.blockHueBrightness,
+            alpha: 1
         )
     }
 }
