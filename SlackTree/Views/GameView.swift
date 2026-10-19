@@ -30,8 +30,7 @@ struct GameView: View {
                 scene.size = geometry.size
                 scene.gameDelegate = gameViewModel
             }
-            .onChange(of: gameViewModel.gameState) { newState in
-                // Prevent gameplay from advancing while the pause overlay is shown.
+            .onChange(of: gameViewModel.gameState) { _, newState in
                 scene.isPaused = newState != .playing
             }
         }

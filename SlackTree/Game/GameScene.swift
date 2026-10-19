@@ -23,10 +23,13 @@ final class GameScene: SKScene {
 
     weak var gameDelegate: (any GameSceneDelegate)?
 
-    /// Contains currently retained, visible blocks, with the top block last.
+    /// Retains visible tower blocks, with the highest block last.
     private var placedBlocks: [SKShapeNode] = []
 
     private var movingBlock: SKShapeNode?
+    private var cameraNode: SKCameraNode?
+
+    /// Includes the base block; the base does not count toward player score.
     private var totalPlacedCount = 0
 
     private var lastUpdateTime: TimeInterval = 0
@@ -45,25 +48,20 @@ final class GameScene: SKScene {
         isConfigured = true
 
         setupBaseBlock()
+        setupCamera()
         spawnMovingBlock()
+        updateCameraTarget(animated: false)
     }
 
     override func didChangeSize(_ oldSize: CGSize) {
         super.didChangeSize(oldSize)
 
-        guard let block = movingBlock, size.width > 0 else { return }
+        guard size.width > 0 else { return }
 
-        let halfWidth = block.frame.width / 2
-        let leftLimit = halfWidth + Theme.Gameplay.horizontalInset
-        let rightLimit = max(
-            leftLimit,
-            size.width - halfWidth - Theme.Gameplay.horizontalInset
-        )
+        clampMovingBlockToSceneBounds()
 
-        block.position.x = min(
-            max(block.position.x, leftLimit),
-            rightLimit
-        )
+        // Recalculate framing immediately when the viewport changes.
+        updateCameraTarget(animated: false)
     }
 
     // MARK: - Setup
@@ -73,6 +71,8 @@ final class GameScene: SKScene {
 
         placedBlocks.removeAll(keepingCapacity: true)
         movingBlock = nil
+        cameraNode = nil
+
         totalPlacedCount = 0
         lastUpdateTime = 0
         moveDirection = 1
@@ -105,7 +105,22 @@ final class GameScene: SKScene {
 
         addChild(base)
         placedBlocks.append(base)
+
+        // The base is structural, not a player-placed block.
         totalPlacedCount = 1
+    }
+
+    private func setupCamera() {
+        let camera = SKCameraNode()
+
+        camera.position = CGPoint(
+            x: size.width / 2,
+            y: size.height / 2
+        )
+
+        addChild(camera)
+        self.camera = camera
+        cameraNode = camera
     }
 
     private func makeBlock(
@@ -114,6 +129,7 @@ final class GameScene: SKScene {
         name: String
     ) -> SKShapeNode {
         let block = SKShapeNode(rectOf: blockSize)
+
         block.fillColor = color
         block.strokeColor = color
         block.lineWidth = 0
@@ -143,13 +159,16 @@ final class GameScene: SKScene {
         )
 
         let halfWidth = blockSize.width / 2
-        let leftLimit = halfWidth + Theme.Gameplay.horizontalInset
+
+        let leftLimit =
+            halfWidth + Theme.Gameplay.horizontalInset
+
         let rightLimit = max(
             leftLimit,
             size.width - halfWidth - Theme.Gameplay.horizontalInset
         )
 
-        // Alternate the edge at which each new block begins.
+        // Alternate the starting edge for successive blocks.
         let startsOnRight = nextBlockStartsOnRight
         nextBlockStartsOnRight.toggle()
 
@@ -162,6 +181,9 @@ final class GameScene: SKScene {
 
         addChild(block)
         movingBlock = block
+
+        // Follow the new active block rather than shifting the tower.
+        updateCameraTarget(animated: true)
     }
 
     override func update(_ currentTime: TimeInterval) {
@@ -172,12 +194,12 @@ final class GameScene: SKScene {
             return
         }
 
-        // Use elapsed time rather than a fixed per-frame movement amount.
+        // Movement depends on elapsed time, not the number of frames.
         let rawDelta = lastUpdateTime == 0
             ? 0
             : currentTime - lastUpdateTime
 
-        // Avoid large jumps after a debugger pause or app interruption.
+        // Prevent a large movement jump after an interruption.
         let deltaTime = min(
             max(rawDelta, 0),
             Theme.Gameplay.maximumFrameDelta
@@ -185,7 +207,9 @@ final class GameScene: SKScene {
 
         lastUpdateTime = currentTime
 
+        // Gradually increase speed according to the tower level.
         let level = max(0, totalPlacedCount - 1)
+
         let requestedSpeed =
             Theme.Gameplay.initialMoveSpeed
             + CGFloat(level) * Theme.Gameplay.speedIncreasePerLevel
@@ -196,7 +220,10 @@ final class GameScene: SKScene {
         )
 
         let halfWidth = block.frame.width / 2
-        let leftLimit = halfWidth + Theme.Gameplay.horizontalInset
+
+        let leftLimit =
+            halfWidth + Theme.Gameplay.horizontalInset
+
         let rightLimit = max(
             leftLimit,
             size.width - halfWidth - Theme.Gameplay.horizontalInset
@@ -204,7 +231,7 @@ final class GameScene: SKScene {
 
         block.position.x += moveDirection * speed * CGFloat(deltaTime)
 
-        // Clamp at the boundary to prevent overshooting between frames.
+        // Clamp the block to prevent overshooting at either edge.
         if block.position.x >= rightLimit {
             block.position.x = rightLimit
             moveDirection = -1
@@ -212,6 +239,28 @@ final class GameScene: SKScene {
             block.position.x = leftLimit
             moveDirection = 1
         }
+    }
+
+    private func clampMovingBlockToSceneBounds() {
+        guard let block = movingBlock,
+              size.width > 0 else {
+            return
+        }
+
+        let halfWidth = block.frame.width / 2
+
+        let leftLimit =
+            halfWidth + Theme.Gameplay.horizontalInset
+
+        let rightLimit = max(
+            leftLimit,
+            size.width - halfWidth - Theme.Gameplay.horizontalInset
+        )
+
+        block.position.x = min(
+            max(block.position.x, leftLimit),
+            rightLimit
+        )
     }
 
     // MARK: - Input and Overlap
@@ -231,19 +280,24 @@ final class GameScene: SKScene {
             return
         }
 
-        // Both rectangles are axis-aligned, so only their X intervals
-        // are needed to determine the width of their intersection.
-        let movingLeft = moving.position.x - moving.frame.width / 2
-        let movingRight = moving.position.x + moving.frame.width / 2
+        // Intersect the horizontal intervals of the two rectangles.
+        let movingLeft =
+            moving.position.x - moving.frame.width / 2
 
-        let belowLeft = below.position.x - below.frame.width / 2
-        let belowRight = below.position.x + below.frame.width / 2
+        let movingRight =
+            moving.position.x + moving.frame.width / 2
+
+        let belowLeft =
+            below.position.x - below.frame.width / 2
+
+        let belowRight =
+            below.position.x + below.frame.width / 2
 
         let overlapLeft = max(movingLeft, belowLeft)
         let overlapRight = min(movingRight, belowRight)
         let overlapWidth = overlapRight - overlapLeft
 
-        // Merely touching at an edge is not a valid overlap.
+        // Edge-only contact does not count as a successful placement.
         guard overlapWidth > 0 else {
             finishGame()
             return
@@ -251,8 +305,7 @@ final class GameScene: SKScene {
 
         let overlapCenterX = (overlapLeft + overlapRight) / 2
 
-        // Replace the local rectangle path with the exact intersection.
-        // The path is centered around the node's local origin.
+        // Trim the block's path to exactly match the overlap.
         let trimmedRect = CGRect(
             x: -overlapWidth / 2,
             y: -Theme.Gameplay.blockHeight / 2,
@@ -274,24 +327,27 @@ final class GameScene: SKScene {
         totalPlacedCount += 1
         movingBlock = nil
 
-        // Score counts successful placements above the base block.
+        // Score counts successful player placements, excluding the base.
+        let playerScore = totalPlacedCount - 1
+
         gameDelegate?.gameScene(
             self,
-            didUpdateScore: totalPlacedCount - 1
+            didUpdateScore: playerScore
         )
 
         HapticsManager.shared.playSuccess()
         SoundManager.shared.playTap()
 
-        keepTowerInView()
-        removeOffscreenBlocks()
+        // Spawn first so cleanup uses the next camera target.
         spawnMovingBlock()
+        removeOffscreenBlocks()
     }
 
     private func finishGame() {
         guard !isGameOver else { return }
 
         isGameOver = true
+
         movingBlock?.removeFromParent()
         movingBlock = nil
 
@@ -301,25 +357,68 @@ final class GameScene: SKScene {
         gameDelegate?.gameSceneDidEnd(self)
     }
 
-    // MARK: - Tower Position and Cleanup
+    // MARK: - Camera
 
-    /// Moves the tower downward as it grows so the latest block stays visible.
-    private func keepTowerInView() {
-        guard let topBlock = placedBlocks.last else { return }
+    /// Calculates the camera center that places a target at the configured
+    /// vertical screen ratio, without changing the tower's world positions.
+    private func desiredCameraY(for target: SKNode) -> CGFloat {
+        let targetScreenY =
+            size.height * Theme.Gameplay.activeBlockScreenYRatio
 
-        let targetY = size.height * Theme.Gameplay.visibleTowerHeightRatio
-        let shift = targetY - topBlock.position.y
-
-        guard shift < 0 else { return }
-
-        for block in placedBlocks {
-            block.position.y += shift
-        }
+        return target.position.y
+            + size.height / 2
+            - targetScreenY
     }
 
-    /// Drops references to blocks that have completely left the bottom of the view.
+    private func updateCameraTarget(animated: Bool) {
+        guard let camera = cameraNode,
+              let target = movingBlock ?? placedBlocks.last,
+              size.height > 0 else {
+            return
+        }
+
+        let targetY = desiredCameraY(for: target)
+
+        guard abs(camera.position.y - targetY)
+                > Theme.Gameplay.cameraDeadZone else {
+            return
+        }
+
+        // Starting a new action from the current position keeps camera
+        // movement smooth even if another target arrives mid-animation.
+        camera.removeAction(forKey: "camera.follow")
+
+        guard animated else {
+            camera.position.y = targetY
+            return
+        }
+
+        let action = SKAction.moveTo(
+            y: targetY,
+            duration: Theme.Gameplay.cameraFollowDuration
+        )
+
+        action.timingMode = .easeInEaseOut
+
+        camera.run(
+            action,
+            withKey: "camera.follow"
+        )
+    }
+
+    // MARK: - Node Cleanup
+
+    /// Removes blocks that are below the camera's upcoming visible area.
     private func removeOffscreenBlocks() {
-        let cutoff = -Theme.Gameplay.offscreenCleanupMargin
+        guard let target = movingBlock ?? placedBlocks.last else {
+            return
+        }
+
+        let targetCameraY = desiredCameraY(for: target)
+
+        let cutoff = targetCameraY
+            - size.height / 2
+            - Theme.Gameplay.offscreenCleanupMargin
 
         let expired = placedBlocks.filter {
             $0.position.y + $0.frame.height / 2 < cutoff
@@ -331,27 +430,19 @@ final class GameScene: SKScene {
             block.removeFromParent()
         }
 
-        placedBlocks.removeAll { $0.position.y + $0.frame.height / 2 < cutoff }
+        // Release references as well as removing the SpriteKit nodes.
+        placedBlocks.removeAll {
+            $0.position.y + $0.frame.height / 2 < cutoff
+        }
     }
 
-    private func blockColor(for level: Int) -> UIColor {
-        let palette: [UIColor] = [
-            UIColor(Theme.Colors.primary),
-            UIColor(Theme.Colors.secondary),
-            UIColor(
-                red: 1.0,
-                green: 0.67,
-                blue: 0.42,
-                alpha: 1.0
-            ),
-            UIColor(
-                red: 0.95,
-                green: 0.44,
-                blue: 0.62,
-                alpha: 1.0
-            )
-        ]
+    // MARK: - Block Colors
 
-        return palette[level % palette.count]
+    private func blockColor(for level: Int) -> UIColor {
+        let palette = Theme.Colors.blockPalette
+
+        return UIColor(
+            palette[level % palette.count]
+        )
     }
 }

@@ -21,9 +21,10 @@ final class GameViewModel: ObservableObject, GameSceneDelegate {
 
     // MARK: - Initialization
 
-    init(highScoreStore: HighScoreStore = .shared) {
-        self.highScoreStore = highScoreStore
-        self.bestScore = highScoreStore.bestScore
+    init(highScoreStore: HighScoreStore? = nil) {
+        let store = highScoreStore ?? HighScoreStore.shared
+        self.highScoreStore = store
+        self.bestScore = store.bestScore
     }
 
     // MARK: - Game State
